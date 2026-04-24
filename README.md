@@ -399,8 +399,8 @@ kubectl port-forward svc/grafana-service 3000:3000 &
 1. **Connections → Data Sources** → Verify Prometheus URL = `http://prometheus-service:9090`
 2. **Dashboards → New → Import** → Enter ID `12708` (Go Metrics Dashboard) or `1860` (Node Exporter)
 3. Add custom panels:
-   - Query: `rate(http_requests_total[1m])` → Requests per second
-   - Query: `histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))` → P95 latency
+   * Query: `rate(http_requests_total[1m])` → Requests per second
+   * Query: `histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))` → P95 latency
 
 ### 5.3 Run k6 Load Test
 
