@@ -16,7 +16,7 @@ kubectl describe pod <pod-name>
 ```
 
 | Cause | Fix |
-|-------|-----|
+| ----- | --- |
 | Incorrect image name | Update `image:` in api-deployment.yaml to match Docker Hub |
 | Image not pushed yet | Run `docker push <username>/go-api:latest` |
 | Docker Hub rate limit | Run `docker login` first, or wait 1 hour |
@@ -39,7 +39,7 @@ kubectl describe pod <pod-name>
 **Common Causes:**
 
 | Cause | Fix |
-|-------|-----|
+| ----- | --- |
 | Cannot connect to DB | Check if `db-service` is running: `kubectl get svc` |
 | Wrong environment variable | Check Secret name/key in yaml |
 | Wrong port | Verify the container is listening on the port matching `containerPort` |
@@ -57,7 +57,7 @@ kubectl describe pod <pod-name>
 ```
 
 | Cause | Fix |
-|-------|-----|
+| ----- | --- |
 | No node available | `kubectl get nodes` – if NotReady, restart minikube |
 | Insufficient resources | Reduce `resources.requests` in yaml |
 | PVC not Bound | `kubectl get pvc` – if Pending, check StorageClass |
@@ -108,28 +108,6 @@ minikube start --driver=docker
 kubectl config current-context
 kubectl config use-context minikube
 ```
-
----
-
-## 7. Prometheus Not Scraping Metrics
-
-**Symptom:** The metric `http_requests_total` is not visible in the Prometheus UI
-
-```bash
-# Check that the Pod has the required annotations
-kubectl get pod <api-pod> -o yaml | grep prometheus
-
-# Port-forward to Prometheus and open /targets
-kubectl port-forward svc/prometheus-service 9090:9090
-# Open http://localhost:9090/targets
-```
-
----
-
-## 8. Cannot Log In to Grafana
-
-Default credentials: **admin / admin123**  
-If you were forced to change the password after login, use the new password instead.
 
 ---
 

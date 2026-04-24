@@ -13,7 +13,19 @@ deployment/
 │   ├── main.go                 # Go (Gin) API with health probes + metrics
 │   ├── go.mod
 │   ├── Dockerfile              # Multi-stage build
-│   └── .dockerignore
+│   ├── .dockerignore
+│   └── vendor/                 # Go vendor dependencies
+├── docker/
+│   ├── init.sql                # PostgreSQL init script
+│   ├── prometheus.yml          # Prometheus scrape config
+│   └── grafana/
+│       ├── dashboards.yaml     # Grafana dashboard provisioning
+│       ├── datasources.yaml    # Grafana datasource provisioning
+│       ├── go-api-metrics.json # Go API dashboard
+│       └── node-exporter-full.json
+├── hurl/
+│   └── env/
+│       └── dev.env             # Hurl environment variables
 ├── k8s/
 │   ├── postgres-db.yaml        # PostgreSQL Deployment + Service + Secret
 │   ├── api-deployment.yaml     # Go API Deployment + Service + HPA
@@ -23,7 +35,14 @@ deployment/
 │   ├── k6/
 │   │   └── script.js           # k6 load test script
 │   └── hurl/
-│       └── api.hurl            # Hurl functional test
+│       ├── api.hurl            # Full functional test suite
+│       ├── live.hurl           # Liveness probe test
+│       ├── ready.hurl          # Readiness probe test
+│       ├── welcome.hurl        # Welcome endpoint test
+│       ├── items.hurl          # Items endpoint test
+│       └── metrics.hurl        # Metrics endpoint test
+├── docker-compose.yml          # Local development stack
+├── Makefile                    # Test commands
 ├── TROUBLESHOOTING.md          # Common errors & quick fixes
 └── README.md                   # This guide
 ```
@@ -373,162 +392,6 @@ Watch GitHub Actions — the pipeline will automatically run Build → Push → 
 kubectl rollout status deployment/go-api
 curl http://$(minikube ip):30080/
 ```
-
----
-
-## Phase 5 – Load Test & Monitoring (30 min)
-
-### 5.1 Deploy Prometheus & Grafana
-
-```bash
-kubectl apply -f k8s/prometheus.yaml
-kubectl apply -f k8s/grafana.yaml
-kubectl get pods -w   # Wait until both Pods are Running
-```
-
-### 5.2 Access Grafana via Port-forward
-
-```bash
-kubectl port-forward svc/grafana-service 3000:3000 &
-# Open http://localhost:3000
-# Login: admin / admin123
-```
-
-**Import Dashboards via API (recommended for Cloud Shell):**
-
-> The Grafana web UI may block import/save actions with "origin not allowed" when accessed through Cloud Shell proxy. Use the API instead:
-
-```bash
-# --- Dashboard 1860 (Node Exporter Full) ---
-curl -s https://grafana.com/api/dashboards/1860/revisions/latest/download -o /tmp/dashboard-1860.json
-
-jq -n --slurpfile dash /tmp/dashboard-1860.json '{
-  dashboard: $dash[0],
-  overwrite: true,
-  inputs: [{ name: "DS_PROMETHEUS", type: "datasource", pluginId: "prometheus", value: "Prometheus" }]
-}' > /tmp/import-1860.json
-
-curl -X POST http://localhost:3000/api/dashboards/import \
-  -H "Content-Type: application/json" \
-  --data-binary @/tmp/import-1860.json
-```
-
-**Add custom panels** (Requests per second + P95 Latency):
-
-```bash
-curl -X POST http://localhost:3000/api/dashboards/db \
-  -H "Content-Type: application/json" \
-  --data-binary '{
-  "dashboard": {
-    "title": "Go API Metrics",
-    "panels": [
-      {
-        "title": "Requests per second",
-        "type": "timeseries",
-        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-        "targets": [{
-          "expr": "rate(http_requests_total[1m])",
-          "legendFormat": "{{method}} {{path}} {{status}}",
-          "refId": "A"
-        }],
-        "datasource": { "type": "prometheus", "uid": "" },
-        "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
-      },
-      {
-        "title": "P95 Latency",
-        "type": "timeseries",
-        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
-        "targets": [{
-          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))",
-          "legendFormat": "{{method}} {{path}}",
-          "refId": "A"
-        }],
-        "datasource": { "type": "prometheus", "uid": "" },
-        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
-      }
-    ],
-    "schemaVersion": 39,
-    "version": 0
-  },
-  "overwrite": true
-}'
-```
-
-### 5.3 Run k6 Load Test
-
-```bash
-# Open a new terminal
-k6 run -e BASE_URL=http://$(minikube ip):30080 tests/k6/script.js
-```
-
-### 5.4 Observe Grafana
-
-Watch the graphs in Grafana while k6 is running:
-
-* **Request rate** will spike
-* **CPU usage** of Pods will increase
-* **P95 latency** will change with load
-
-### 5.5 Functional Test with Hurl
-
-```bash
-hurl --variable base_url=http://$(minikube ip):30080 \
-  tests/hurl/api.hurl --verbose
-```
-
----
-
-## Phase 6 – Scaling & Troubleshooting (20 min)
-
-### 6.1 Manual Scaling
-
-When you see CPU spike in Grafana:
-
-```bash
-kubectl scale deployment go-api --replicas=5
-kubectl get pods -w   # Watch new Pods being created
-```
-
-### 6.2 Verify Load Distribution in Grafana
-
-Add a panel in Grafana with the query:
-
-```promql
-rate(http_requests_total[30s])
-```
-
-You will see each Pod (by `pod` label) handling a separate share of traffic.
-
-### 6.3 Log Analysis
-
-```bash
-# Stream logs in real-time during k6 test
-kubectl logs -f deployment/go-api
-
-# Stream logs for a specific Pod
-kubectl logs -f <pod-name>
-
-# Stream logs across multiple Pods simultaneously (requires stern)
-stern go-api
-```
-
-### 6.4 Scale Down
-
-```bash
-kubectl scale deployment go-api --replicas=2
-```
-
----
-
-## What You Learned
-
-| Topic | What was done |
-| ----- | ------------- |
-| **Reliability** | Health probes (`/livez`, `/readyz`) + Graceful shutdown |
-| **Observability** | Prometheus metrics + Grafana dashboard |
-| **Automation** | GitHub Actions + Self-hosted Runner |
-| **Scalability** | Manual scaling + HPA (auto-scale) |
-| **Testing** | Load test (k6) + Functional test (Hurl) |
 
 ---
 
